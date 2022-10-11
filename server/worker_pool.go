@@ -76,10 +76,10 @@ func (wp *WorkerPool) Start(config WorkerPoolConfig) {
 
 	logutil.BgLogger().Info("WorkerPool Start")
 
-	wp.readPacketChan = make(chan ReadPacketTask, config.ReadPacketWokerCount)
-	wp.executeStmtChan = make(chan ExecuteStmtTask, config.ExecuteStmtWokerCount)
-	wp.writeChunksChan = make(chan WriteChunksTask, config.WriteChunksWokerCount)
-	wp.flushChan = make(chan FlushTask, config.FlushWokerCount)
+	wp.readPacketChan = make(chan ReadPacketTask, 120)
+	wp.executeStmtChan = make(chan ExecuteStmtTask, 120)
+	wp.writeChunksChan = make(chan WriteChunksTask, 120)
+	wp.flushChan = make(chan FlushTask, 120)
 
 	for i := 0; i < int(config.ReadPacketWokerCount); i++ {
 		go wp.doReadPacket()
