@@ -247,7 +247,12 @@ func (cc *clientConn) executePreparedStmtAndWriteResult(ctx context.Context, stm
 		BinaryArgs: args,
 		PrepStmt:   prepStmt,
 	}
-	rs, err := (&cc.ctx).ExecuteStmt(ctx, execStmt)
+	var rs ResultSet
+	if cc.ctx.GetSessionVars().DoubleMyQPS {
+		rs, err = cc.WokerPool.ExecuteStmt(cc, ctx, execStmt)
+	} else {
+		rs, err = (&cc.ctx).ExecuteStmt(ctx, execStmt)
+	}
 	if err != nil {
 		return true, errors.Annotate(err, cc.preparedStmt2String(uint32(stmt.ID())))
 	}

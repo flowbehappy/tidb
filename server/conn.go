@@ -171,6 +171,7 @@ func newClientConn(s *Server) *clientConn {
 		status:       connStatusDispatching,
 		lastActive:   time.Now(),
 		authPlugin:   mysql.AuthNativePassword,
+		WokerPool:    &s.workerPool,
 	}
 }
 
@@ -212,6 +213,8 @@ type clientConn struct {
 		sync.RWMutex
 		cancelFunc context.CancelFunc
 	}
+
+	WokerPool *WorkerPool
 }
 
 func (cc *clientConn) getCtx() *TiDBContext {
@@ -1065,7 +1068,14 @@ func (cc *clientConn) Run(ctx context.Context) {
 		waitTimeout := cc.getSessionVarsWaitTimeout(ctx)
 		cc.pkt.setReadTimeout(time.Duration(waitTimeout) * time.Second)
 		start := time.Now()
-		data, err := cc.readPacket()
+
+		var data []byte
+		var err error
+		if cc.ctx.GetSessionVars().DoubleMyQPS {
+			data, err = cc.WokerPool.ReadPacket(cc)
+		} else {
+			data, err = cc.readPacket()
+		}
 		if err != nil {
 			if terror.ErrorNotEqual(err, io.EOF) {
 				if netErr, isNetErr := errors.Cause(err).(net.Error); isNetErr && netErr.Timeout() {
@@ -2199,13 +2209,29 @@ func (cc *clientConn) writeResultset(ctx context.Context, rs ResultSet, binary b
 		if err := cc.writeChunksWithFetchSize(ctx, rs, serverStatus, fetchSize); err != nil {
 			return false, err
 		}
-		return false, cc.flush(ctx)
+		if cc.ctx.GetSessionVars().DoubleMyQPS {
+			return false, cc.WokerPool.Flush(cc, ctx)
+		} else {
+			return false, cc.flush(ctx)
+		}
 	}
-	if retryable, err := cc.writeChunks(ctx, rs, binary, serverStatus); err != nil {
+
+	var err error
+	if cc.ctx.GetSessionVars().DoubleMyQPS {
+		retryable, err = cc.WokerPool.WriteChunks(cc, ctx, rs, binary, serverStatus)
+	} else {
+		retryable, err = cc.writeChunks(ctx, rs, binary, serverStatus)
+	}
+
+	if err != nil {
 		return retryable, err
 	}
 
-	return false, cc.flush(ctx)
+	if cc.ctx.GetSessionVars().DoubleMyQPS {
+		return false, cc.WokerPool.Flush(cc, ctx)
+	} else {
+		return false, cc.flush(ctx)
+	}
 }
 
 func (cc *clientConn) writeColumnInfo(columns []*ColumnInfo) error {

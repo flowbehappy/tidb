@@ -746,6 +746,8 @@ const (
 	// ranges would exceed the limit, it chooses less accurate ranges such as full range. 0 indicates that there is no memory
 	// limit for ranges.
 	TiDBOptRangeMaxSize = "tidb_opt_range_max_size"
+
+	TiDBDoubleMyQPS = "tidb_double_my_qps"
 )
 
 // TiDB vars that have only global scope
@@ -1051,6 +1053,7 @@ const (
 	DefTiDBCostModelVer                             = 1
 	DefTiDBServerMemoryLimitSessMinSize             = 128 << 20
 	DefTiDBEnableGOGCTuner                          = true
+	DefTiDBDoubleMyQPS                              = false
 )
 
 // Process global variables.

@@ -37,6 +37,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http" //nolint:goimports
+
 	// For pprof
 	_ "net/http/pprof" // #nosec G108
 	"os"
@@ -136,6 +137,8 @@ type Server struct {
 
 	sessionMapMutex  sync.Mutex
 	internalSessions map[interface{}]struct{}
+
+	workerPool WorkerPool
 }
 
 // ConnectionCount gets current connection count.
@@ -356,6 +359,8 @@ func (s *Server) reportConfig() {
 
 // Run runs the server.
 func (s *Server) Run() error {
+	s.workerPool.Start(WorkerPoolConfig{ReadPacketWokerCount: 16, ExecuteStmtWokerCount: 16, WriteChunksWokerCount: 16, FlushWokerCount: 16})
+
 	metrics.ServerEventCounter.WithLabelValues(metrics.EventStart).Inc()
 	s.reportConfig()
 
@@ -467,6 +472,8 @@ func (s *Server) startShutdown() {
 		logutil.BgLogger().Info("waiting for stray connections before starting shutdown process", zap.Duration("waitTime", waitTime))
 		time.Sleep(waitTime)
 	}
+
+	s.workerPool.Shutdown()
 }
 
 // Close closes the server.

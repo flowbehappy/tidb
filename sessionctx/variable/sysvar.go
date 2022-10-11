@@ -1883,6 +1883,10 @@ var defaultSysVars = []*SysVar{
 		s.RangeMaxSize = TidbOptInt64(val, DefTiDBOptRangeMaxSize)
 		return nil
 	}},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBDoubleMyQPS, Value: BoolToOnOff(DefTiDBDoubleMyQPS), Type: TypeBool, SetSession: func(s *SessionVars, val string) error {
+		s.DoubleMyQPS = TiDBOptOn(val)
+		return nil
+	}},
 }
 
 // FeedbackProbability points to the FeedbackProbability in statistics package.

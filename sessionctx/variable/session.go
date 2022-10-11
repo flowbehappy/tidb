@@ -1271,6 +1271,9 @@ type SessionVars struct {
 	// LastPlanReplayerToken indicates the last plan replayer token
 	LastPlanReplayerToken string
 
+	// Be strong!
+	DoubleMyQPS bool
+
 	HookContext
 }
 
@@ -1564,6 +1567,7 @@ func NewSessionVars(hctx HookContext) *SessionVars {
 		TiFlashFastScan:               DefTiFlashFastScan,
 		EnableTiFlashReadForWriteStmt: DefTiDBEnableTiFlashReadForWriteStmt,
 		ForeignKeyChecks:              DefTiDBForeignKeyChecks,
+		DoubleMyQPS:                   DefTiDBDoubleMyQPS,
 		HookContext:                   hctx,
 	}
 	vars.KVVars = tikvstore.NewVariables(&vars.Killed)
