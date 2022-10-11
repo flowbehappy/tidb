@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pingcap/tidb/parser/ast"
+	"github.com/pingcap/tidb/util/logutil"
 )
 
 type ReadPacketTaskRes struct {
@@ -13,6 +14,7 @@ type ReadPacketTaskRes struct {
 
 type ReadPacketTask struct {
 	conn *clientConn
+	ctx  *context.Context
 
 	resChan chan ReadPacketTaskRes
 }
@@ -71,6 +73,14 @@ type WorkerPool struct {
 }
 
 func (wp *WorkerPool) Start(config WorkerPoolConfig) {
+
+	logutil.BgLogger().Info("WorkerPool Start")
+
+	wp.readPacketChan = make(chan ReadPacketTask, config.ReadPacketWokerCount)
+	wp.executeStmtChan = make(chan ExecuteStmtTask, config.ExecuteStmtWokerCount)
+	wp.writeChunksChan = make(chan WriteChunksTask, config.WriteChunksWokerCount)
+	wp.flushChan = make(chan FlushTask, config.FlushWokerCount)
+
 	for i := 0; i < int(config.ReadPacketWokerCount); i++ {
 		go wp.doReadPacket()
 	}
@@ -94,19 +104,25 @@ func (wp *WorkerPool) Shutdown() {
 
 func (wp *WorkerPool) doReadPacket() {
 	for task := range wp.readPacketChan {
+		// logutil.Logger(*task.ctx).Info("doReadPacket =============================== before")
+
 		data, err := task.conn.readPacket()
 		task.resChan <- ReadPacketTaskRes{data, err}
+
+		// logutil.Logger(*task.ctx).Info("doReadPacket =============================== after")
 	}
 }
 
-func (wp *WorkerPool) ReadPacket(conn *clientConn) ([]byte, error) {
+func (wp *WorkerPool) ReadPacket(conn *clientConn, ctx context.Context) ([]byte, error) {
 	task := ReadPacketTask{
 		conn:    conn,
-		resChan: make(chan ReadPacketTaskRes),
+		ctx:     &ctx,
+		resChan: make(chan ReadPacketTaskRes, 1),
 	}
 
 	wp.readPacketChan <- task
 	res := <-task.resChan
+
 	return res.data, res.err
 }
 
@@ -122,7 +138,7 @@ func (wp *WorkerPool) ExecuteStmt(conn *clientConn, ctx context.Context, stmt *a
 		conn:    conn,
 		ctx:     &ctx,
 		stmt:    stmt,
-		resChan: make(chan ExecuteStmtTaskRes),
+		resChan: make(chan ExecuteStmtTaskRes, 1),
 	}
 
 	wp.executeStmtChan <- task
@@ -148,7 +164,7 @@ func (wp *WorkerPool) WriteChunks(conn *clientConn,
 		rs:           &rs,
 		binary:       binary,
 		serverStatus: serverStatus,
-		resChan:      make(chan WriteChunksTaskRes),
+		resChan:      make(chan WriteChunksTaskRes, 1),
 	}
 
 	wp.writeChunksChan <- task
@@ -167,7 +183,7 @@ func (wp *WorkerPool) Flush(conn *clientConn, ctx context.Context) error {
 	task := FlushTask{
 		conn:    conn,
 		ctx:     &ctx,
-		resChan: make(chan FlushTaskRes),
+		resChan: make(chan FlushTaskRes, 1),
 	}
 
 	wp.flushChan <- task

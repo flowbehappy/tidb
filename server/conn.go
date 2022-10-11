@@ -1072,7 +1072,9 @@ func (cc *clientConn) Run(ctx context.Context) {
 		var data []byte
 		var err error
 		if cc.ctx.GetSessionVars().DoubleMyQPS {
-			data, err = cc.WokerPool.ReadPacket(cc)
+			// logutil.Logger(ctx).Info("ReadPacket double =============================== before")
+			data, err = cc.WokerPool.ReadPacket(cc, ctx)
+			// logutil.Logger(ctx).Info("ReadPacket double =============================== after")
 		} else {
 			data, err = cc.readPacket()
 		}

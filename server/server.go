@@ -204,6 +204,8 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 	setTxnScope()
 	setSystemTimeZoneVariable()
 
+	s.workerPool.Start(WorkerPoolConfig{ReadPacketWokerCount: 16, ExecuteStmtWokerCount: 16, WriteChunksWokerCount: 16, FlushWokerCount: 16})
+
 	tlsConfig, autoReload, err := util.LoadTLSCertificates(
 		s.cfg.Security.SSLCA, s.cfg.Security.SSLKey, s.cfg.Security.SSLCert,
 		s.cfg.Security.AutoTLS, s.cfg.Security.RSAKeySize)
@@ -359,8 +361,6 @@ func (s *Server) reportConfig() {
 
 // Run runs the server.
 func (s *Server) Run() error {
-	s.workerPool.Start(WorkerPoolConfig{ReadPacketWokerCount: 16, ExecuteStmtWokerCount: 16, WriteChunksWokerCount: 16, FlushWokerCount: 16})
-
 	metrics.ServerEventCounter.WithLabelValues(metrics.EventStart).Inc()
 	s.reportConfig()
 
