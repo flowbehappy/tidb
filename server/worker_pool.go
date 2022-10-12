@@ -104,26 +104,24 @@ func (wp *WorkerPool) Shutdown() {
 
 func (wp *WorkerPool) doReadPacket() {
 	for task := range wp.readPacketChan {
-		// logutil.Logger(*task.ctx).Info("doReadPacket =============================== before")
-
 		data, err := task.conn.readPacket()
 		task.resChan <- ReadPacketTaskRes{data, err}
-
-		// logutil.Logger(*task.ctx).Info("doReadPacket =============================== after")
 	}
 }
 
 func (wp *WorkerPool) ReadPacket(conn *clientConn, ctx context.Context) ([]byte, error) {
-	task := ReadPacketTask{
-		conn:    conn,
-		ctx:     &ctx,
-		resChan: make(chan ReadPacketTaskRes, 1),
-	}
+	return conn.readPacket()
 
-	wp.readPacketChan <- task
-	res := <-task.resChan
+	// task := ReadPacketTask{
+	// 	conn:    conn,
+	// 	ctx:     &ctx,
+	// 	resChan: make(chan ReadPacketTaskRes, 1),
+	// }
 
-	return res.data, res.err
+	// wp.readPacketChan <- task
+	// res := <-task.resChan
+
+	// return res.data, res.err
 }
 
 func (wp *WorkerPool) doExecuteStmt() {
@@ -134,16 +132,18 @@ func (wp *WorkerPool) doExecuteStmt() {
 }
 
 func (wp *WorkerPool) ExecuteStmt(conn *clientConn, ctx context.Context, stmt *ast.ExecuteStmt) (ResultSet, error) {
-	task := ExecuteStmtTask{
-		conn:    conn,
-		ctx:     &ctx,
-		stmt:    stmt,
-		resChan: make(chan ExecuteStmtTaskRes, 1),
-	}
+	return (&conn.ctx).ExecuteStmt(ctx, stmt)
 
-	wp.executeStmtChan <- task
-	res := <-task.resChan
-	return res.rs, res.err
+	// task := ExecuteStmtTask{
+	// 	conn:    conn,
+	// 	ctx:     &ctx,
+	// 	stmt:    stmt,
+	// 	resChan: make(chan ExecuteStmtTaskRes, 1),
+	// }
+
+	// wp.executeStmtChan <- task
+	// res := <-task.resChan
+	// return res.rs, res.err
 }
 
 func (wp *WorkerPool) doWriteChunks() {
@@ -158,18 +158,21 @@ func (wp *WorkerPool) WriteChunks(conn *clientConn,
 	rs ResultSet,
 	binary bool,
 	serverStatus uint16) (bool, error) {
-	task := WriteChunksTask{
-		conn:         conn,
-		ctx:          &ctx,
-		rs:           &rs,
-		binary:       binary,
-		serverStatus: serverStatus,
-		resChan:      make(chan WriteChunksTaskRes, 1),
-	}
 
-	wp.writeChunksChan <- task
-	res := <-task.resChan
-	return res.retryable, res.err
+	return conn.writeChunks(ctx, rs, binary, serverStatus)
+
+	// task := WriteChunksTask{
+	// 	conn:         conn,
+	// 	ctx:          &ctx,
+	// 	rs:           &rs,
+	// 	binary:       binary,
+	// 	serverStatus: serverStatus,
+	// 	resChan:      make(chan WriteChunksTaskRes, 1),
+	// }
+
+	// wp.writeChunksChan <- task
+	// res := <-task.resChan
+	// return res.retryable, res.err
 }
 
 func (wp *WorkerPool) doFlush() {
@@ -180,13 +183,14 @@ func (wp *WorkerPool) doFlush() {
 }
 
 func (wp *WorkerPool) Flush(conn *clientConn, ctx context.Context) error {
-	task := FlushTask{
-		conn:    conn,
-		ctx:     &ctx,
-		resChan: make(chan FlushTaskRes, 1),
-	}
+	return conn.flush(ctx)
+	// task := FlushTask{
+	// 	conn:    conn,
+	// 	ctx:     &ctx,
+	// 	resChan: make(chan FlushTaskRes, 1),
+	// }
 
-	wp.flushChan <- task
-	res := <-task.resChan
-	return res.err
+	// wp.flushChan <- task
+	// res := <-task.resChan
+	// return res.err
 }
