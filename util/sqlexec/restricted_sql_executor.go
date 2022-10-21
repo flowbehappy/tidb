@@ -192,11 +192,17 @@ type RecordSet interface {
 	// Fields gets result fields.
 	Fields() []*ast.ResultField
 
+	FieldsWithID(id uint64) []*ast.ResultField
+
+	CheckIDExist(id uint64) bool
+
 	// Next reads records into chunk.
 	Next(ctx context.Context, req *chunk.Chunk) error
 
 	// NewChunk create a chunk, if allocator is nil, the default one is used.
 	NewChunk(chunk.Allocator) *chunk.Chunk
+
+	NewChunkWithID(allocator chunk.Allocator, id uint64) *chunk.Chunk
 
 	// Close closes the underlying iterator, call Next after Close will
 	// restart the iteration.

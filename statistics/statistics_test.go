@@ -55,6 +55,14 @@ func (r *recordSet) Fields() []*ast.ResultField {
 	return r.fields
 }
 
+func (r *recordSet) FieldsWithID(id uint64) []*ast.ResultField {
+	return nil
+}
+
+func (r *recordSet) CheckIDExist(id uint64) bool {
+	return false
+}
+
 func (r *recordSet) setFields(tps ...uint8) {
 	r.fields = make([]*ast.ResultField, len(tps))
 	for i := 0; i < len(tps); i++ {
@@ -95,6 +103,10 @@ func (r *recordSet) NewChunk(chunk.Allocator) *chunk.Chunk {
 		fields = append(fields, &field.Column.FieldType)
 	}
 	return chunk.NewChunkWithCapacity(fields, 32)
+}
+
+func (r *recordSet) NewChunkWithID(alloc chunk.Allocator, id uint64) *chunk.Chunk {
+	return nil
 }
 
 func (r *recordSet) Close() error {

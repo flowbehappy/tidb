@@ -247,6 +247,14 @@ func (e *analyzeColumnsExec) Fields() []*ast.ResultField {
 	return e.fields
 }
 
+func (e *analyzeColumnsExec) FieldsWithID(id uint64) []*ast.ResultField {
+	return nil
+}
+
+func (e *analyzeColumnsExec) CheckIDExist(id uint64) bool {
+	return false
+}
+
 func (e *analyzeColumnsExec) getNext(ctx context.Context) ([]types.Datum, error) {
 	values, err := e.tblExec.Next(ctx)
 	if err != nil {
@@ -284,6 +292,10 @@ func (e *analyzeColumnsExec) NewChunk(_ chunk.Allocator) *chunk.Chunk {
 		fields = append(fields, &field.Column.FieldType)
 	}
 	return chunk.NewChunkWithCapacity(fields, 1)
+}
+
+func (e *analyzeColumnsExec) NewChunkWithID(_ chunk.Allocator, _ uint64) *chunk.Chunk {
+	return nil
 }
 
 // Close implements the sqlexec.RecordSet Close interface.

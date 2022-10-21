@@ -21,6 +21,7 @@ import (
 	"runtime/trace"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,10 +89,12 @@ type processinfoSetter interface {
 // recordSet wraps an executor, implements sqlexec.RecordSet interface
 type recordSet struct {
 	fields     []*ast.ResultField
+	allFields  map[uint64][]*ast.ResultField
 	executor   Executor
 	stmt       *ExecStmt
 	lastErr    error
 	txnStartTS uint64
+	mu         sync.Mutex
 }
 
 func (a *recordSet) Fields() []*ast.ResultField {
@@ -99,6 +102,43 @@ func (a *recordSet) Fields() []*ast.ResultField {
 		a.fields = colNames2ResultFields(a.executor.Schema(), a.stmt.OutputNames, a.stmt.Ctx.GetSessionVars().CurrentDB)
 	}
 	return a.fields
+}
+
+func (a *recordSet) CheckIDExist(id uint64) bool {
+	if pge, ok := a.executor.(*PointGetExecutor); ok {
+		_, ok := pge.allHandles[id]
+		return ok
+	}
+	return false
+}
+
+func (a *recordSet) FieldsWithID(id uint64) []*ast.ResultField {
+	a.mu.Lock()
+	if len(a.allFields) == 0 {
+		a.allFields = make(map[uint64][]*ast.ResultField)
+	}
+	if rf, ok := a.allFields[id]; ok {
+		a.mu.Unlock()
+		rsf := make([]*ast.ResultField, len(rf))
+		copy(rsf, rf)
+		return rsf
+	}
+	a.mu.Unlock()
+	if pge, ok := a.executor.(*PointGetExecutor); ok {
+		if len(pge.allSchemas) == 0 {
+			return a.Fields()
+		}
+		schema := pge.allSchemas[id]
+		outputNames := a.stmt.AllOutputNames[id]
+		curDB := a.stmt.Ctx.GetSessionVars().CurrentDB
+		rf := colNames2ResultFields(schema, outputNames, curDB)
+		a.mu.Lock()
+		a.allFields[id] = rf
+		a.mu.Unlock()
+		return rf
+	} else {
+		return a.Fields()
+	}
 }
 
 func colNames2ResultFields(schema *expression.Schema, names []*types.FieldName, defaultDB string) []*ast.ResultField {
@@ -178,6 +218,22 @@ func (a *recordSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
 	return alloc.Alloc(base.retFieldTypes, base.initCap, base.maxChunkSize)
 }
 
+func (a *recordSet) NewChunkWithID(alloc chunk.Allocator, id uint64) *chunk.Chunk {
+	if alloc == nil {
+		return newFirstChunk(a.executor)
+	}
+	base := a.executor.base()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if pge, ok := a.executor.(*PointGetExecutor); ok && len(pge.resultFieldTypes) > 0 {
+		chk := alloc.Alloc(pge.resultFieldTypes[id], base.initCap, base.maxChunkSize)
+		chk.ConnID = id
+		return chk
+	} else {
+		return alloc.Alloc(base.retFieldTypes, base.initCap, base.maxChunkSize)
+	}
+}
+
 func (a *recordSet) Close() error {
 	err := a.executor.Close()
 	a.stmt.CloseRecordSet(a.txnStartTS, a.lastErr)
@@ -233,7 +289,8 @@ type ExecStmt struct {
 	// InfoSchema stores a reference to the schema information.
 	InfoSchema infoschema.InfoSchema
 	// Plan stores a reference to the final physical plan.
-	Plan plannercore.Plan
+	Plan  plannercore.Plan
+	Plans map[uint64]plannercore.Plan
 	// Text represents the origin query text.
 	Text string
 
@@ -260,9 +317,11 @@ type ExecStmt struct {
 	phaseLockDurations  [2]time.Duration
 
 	// OutputNames will be set if using cached plan
-	OutputNames []*types.FieldName
-	PsStmt      *plannercore.PlanCacheStmt
-	Ti          *TelemetryInfo
+	OutputNames    []*types.FieldName
+	AllOutputNames map[uint64][]*types.FieldName
+	PsStmt         *plannercore.PlanCacheStmt
+	Ti             *TelemetryInfo
+	Closed         atomic.Bool
 }
 
 // GetStmtNode returns the stmtNode inside Statement
@@ -301,13 +360,13 @@ func (a *ExecStmt) PointGet(ctx context.Context) (*recordSet, error) {
 		} else {
 			// CachedPlan type is already checked in last step
 			pointGetPlan := a.PsStmt.PreparedAst.CachedPlan.(*plannercore.PointGetPlan)
-			exec.Init(pointGetPlan)
+			exec.Init(pointGetPlan, a.Plans)
 			a.PsStmt.Executor = exec
 		}
 	}
 	if a.PsStmt.Executor == nil {
 		b := newExecutorBuilder(a.Ctx, a.InfoSchema, a.Ti)
-		newExecutor := b.build(a.Plan)
+		newExecutor := b.build(a.Plan, a.Plans)
 		if b.err != nil {
 			return nil, b.err
 		}
@@ -666,6 +725,14 @@ func (c *chunkRowRecordSet) Fields() []*ast.ResultField {
 	return c.fields
 }
 
+func (c *chunkRowRecordSet) FieldsWithID(id uint64) []*ast.ResultField {
+	return nil
+}
+
+func (c *chunkRowRecordSet) CheckIDExist(id uint64) bool {
+	return false
+}
+
 func (c *chunkRowRecordSet) Next(ctx context.Context, chk *chunk.Chunk) error {
 	chk.Reset()
 	if !chk.IsFull() && c.idx < len(c.rows) {
@@ -683,6 +750,10 @@ func (c *chunkRowRecordSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
 
 	base := c.e.base()
 	return alloc.Alloc(base.retFieldTypes, base.initCap, base.maxChunkSize)
+}
+
+func (c *chunkRowRecordSet) NewChunkWithID(_ chunk.Allocator, _ uint64) *chunk.Chunk {
+	return nil
 }
 
 func (c *chunkRowRecordSet) Close() error {
@@ -943,7 +1014,7 @@ func (a *ExecStmt) buildExecutor() (Executor, error) {
 	}
 
 	b := newExecutorBuilder(ctx, a.InfoSchema, a.Ti)
-	e := b.build(a.Plan)
+	e := b.build(a.Plan, a.Plans)
 	if b.err != nil {
 		return nil, errors.Trace(b.err)
 	}
@@ -986,9 +1057,9 @@ func (a *ExecStmt) openExecutor(ctx context.Context, e Executor) (err error) {
 }
 
 func (a *ExecStmt) next(ctx context.Context, e Executor, req *chunk.Chunk) error {
-	start := time.Now()
+	//start := time.Now()
 	err := Next(ctx, e, req)
-	a.phaseNextDurations[0] += time.Since(start)
+	//a.phaseNextDurations[0] += time.Since(start)
 	return err
 }
 
@@ -1263,6 +1334,10 @@ func (a *ExecStmt) FinishExecuteStmt(txnTS uint64, err error, hasMoreResults boo
 
 // CloseRecordSet will finish the execution of current statement and do some record work
 func (a *ExecStmt) CloseRecordSet(txnStartTS uint64, lastErr error) {
+	if a.Closed.Load() {
+		return
+	}
+	a.Closed.Store(true)
 	a.FinishExecuteStmt(txnStartTS, lastErr, false)
 	a.logAudit()
 	// Detach the Memory and disk tracker for the previous stmtCtx from GlobalMemoryUsageTracker and GlobalDiskUsageTracker

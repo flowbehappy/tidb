@@ -67,13 +67,17 @@ type PreparedStatement interface {
 // ResultSet is the result set of an query.
 type ResultSet interface {
 	Columns() []*ColumnInfo
+	ColumnsWithID(id uint64) []*ColumnInfo
 	NewChunk(chunk.Allocator) *chunk.Chunk
+	NewChunkWithID(allocator chunk.Allocator, id uint64) *chunk.Chunk
 	Next(context.Context, *chunk.Chunk) error
 	StoreFetchedRows(rows []chunk.Row)
 	GetFetchedRows() []chunk.Row
 	Close() error
 	// IsClosed checks whether the result set is closed.
 	IsClosed() bool
+	Shared() bool
+	CheckConnIDExists(id uint64) bool
 }
 
 // fetchNotifier represents notifier will be called in COM_FETCH.
